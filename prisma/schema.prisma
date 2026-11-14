@@ -1,0 +1,277 @@
+// The client is generated into src/generated/prisma (gitignored) and talks to
+// PostgreSQL through the @prisma/adapter-pg driver adapter.
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Application secrets (brevo_api_key, jwt_secret), inserted by the owner with SQL.
+model Property {
+  key       String   @id @db.VarChar(100)
+  value     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("property")
+}
+
+// One row per counted request; rows older than the window are deleted on the
+// next hit from the same bucket and IP.
+model RateLimitHit {
+  id        BigInt   @id @default(autoincrement())
+  bucket    String   @db.VarChar(32)
+  ip        String   @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([bucket, ip, createdAt])
+  @@map("rate_limit_hit")
+}
+
+// Publication state of projects and posts; drafts never reach public reads.
+enum ContentStatus {
+  draft
+  published
+
+  @@map("content_status")
+}
+
+model Experience {
+  id            Int       @id @default(autoincrement())
+  period        String    @db.VarChar(100)
+  periodEs      String?   @map("period_es") @db.VarChar(100)
+  role          String    @db.VarChar(200)
+  roleEs        String?   @map("role_es") @db.VarChar(200)
+  company       String    @db.VarChar(200)
+  description   String
+  descriptionEs String?   @map("description_es")
+  technologies  String[]
+  current       Boolean   @default(false)
+  body          String?
+  bodyEs        String?   @map("body_es")
+  // Always the 1st of a month; null only for rows created before Spec 003.
+  startDate     DateTime? @map("start_date") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Display order: current first, then start date (nulls last; the
+  // migration declares NULLS LAST, which Prisma cannot express), then id.
+  @@index([current(sort: Desc), startDate(sort: Desc), id])
+  @@map("experience")
+}
+
+model Project {
+  id            Int           @id @default(autoincrement())
+  slug          String        @unique @db.VarChar(100)
+  // Optional Spanish slug; the Spanish URL uses coalesce(slug_es, slug), kept
+  // unique by the expression index project_url_slug_es_key, created by hand in
+  // the bilingual_content migration (Prisma cannot declare it).
+  slugEs        String?       @map("slug_es") @db.VarChar(100)
+  title         String        @db.VarChar(200)
+  titleEs       String?       @map("title_es") @db.VarChar(200)
+  // Optional while the project is a draft; required to publish.
+  description   String?
+  descriptionEs String?       @map("description_es")
+  image         String?       @db.VarChar(500)
+  tags          String[]
+  link          String?       @db.VarChar(500)
+  github        String?       @db.VarChar(500)
+  body          String?
+  bodyEs        String?       @map("body_es")
+  status        ContentStatus @default(draft)
+  // Set on the first publication and kept afterwards.
+  publishedAt   DateTime?     @map("published_at") @db.Timestamptz
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@map("project")
+}
+
+// expiry_date >= issue_date is enforced by a CHECK constraint added by hand in
+// the content_pages migration (Prisma cannot declare it).
+model Certification {
+  id              Int       @id @default(autoincrement())
+  position        Int
+  name            String    @db.VarChar(200)
+  nameEs          String?   @map("name_es") @db.VarChar(200)
+  issuer          String    @db.VarChar(200)
+  issueDate       DateTime  @map("issue_date") @db.Date
+  expiryDate      DateTime? @map("expiry_date") @db.Date
+  credentialId    String?   @map("credential_id") @db.VarChar(100)
+  verificationUrl String?   @map("verification_url") @db.VarChar(500)
+  fileUrl         String?   @map("file_url") @db.VarChar(500)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([position])
+  @@map("certification")
+}
+
+model Post {
+  id          Int           @id @default(autoincrement())
+  slug        String        @unique @db.VarChar(100)
+  // Same Spanish URL slug rule as projects (post_url_slug_es_key).
+  slugEs      String?       @map("slug_es") @db.VarChar(100)
+  title       String        @db.VarChar(200)
+  titleEs     String?       @map("title_es") @db.VarChar(200)
+  summary     String?       @db.VarChar(300)
+  summaryEs   String?       @map("summary_es") @db.VarChar(300)
+  coverUrl    String?       @map("cover_url") @db.VarChar(500)
+  // Display tags keep the owner's casing; tag_keys (lowercase, spaces as
+  // hyphens) are what listings filter on.
+  tags        String[]      @default([])
+  tagKeys     String[]      @default([]) @map("tag_keys")
+  body        String?
+  bodyEs      String?       @map("body_es")
+  // [{ title, titleEs?, url }], always read and written with the post.
+  references  Json          @default("[]")
+  status      ContentStatus @default(draft)
+  publishedAt DateTime?     @map("published_at") @db.Timestamptz
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([tagKeys], type: Gin)
+  @@map("post")
+}
+
+// Uploaded images and PDFs, served publicly by GET /files/:id. Listings never
+// select `data`.
+model File {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(200)
+  mime      String   @db.VarChar(50)
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  resumes   Resume[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("file")
+}
+
+// Current resume per language (Spec 005). `lang IN ('en','es')` is a CHECK
+// constraint added by hand in the resume migration (Prisma cannot declare it).
+// A file cannot be deleted while a resume points at it (Restrict).
+model Resume {
+  lang       String   @id @db.VarChar(2)
+  fileId     String   @map("file_id") @db.Uuid
+  file       File     @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  @@index([fileId])
+  @@map("resume")
+}
+
+// Review state of a testimonial (Spec 004): visitor submissions stay pending
+// until the owner approves them; rejecting deletes the row.
+enum TestimonialStatus {
+  pending
+  approved
+
+  @@map("testimonial_status")
+}
+
+// `language IN ('en','es')` is enforced by a CHECK constraint added by hand in
+// the testimonial_review migration (Prisma cannot declare it). The 500
+// character quote limit lives in the DTOs so older, longer quotes are kept.
+model Testimonial {
+  id          Int               @id @default(autoincrement())
+  // Null only while pending; approving or creating places the item at 0.
+  position    Int?
+  // English quote and role are null only for a pending Spanish submission:
+  // `status = 'pending' OR (quote IS NOT NULL AND role IS NOT NULL)` is a CHECK
+  // constraint added by hand in the bilingual_content migration.
+  quote       String?
+  quoteEs     String?           @map("quote_es")
+  author      String            @db.VarChar(200)
+  role        String?           @db.VarChar(200)
+  roleEs      String?           @map("role_es") @db.VarChar(200)
+  avatar      String?           @db.VarChar(500)
+  status      TestimonialStatus @default(approved)
+  // Visitor's email, only while pending: approval clears it.
+  email       String?           @db.VarChar(200)
+  // Language of the page the visitor submitted from ('en' or 'es').
+  language    String?           @db.VarChar(2)
+  // False when the owner's notification email could not be sent.
+  notified    Boolean           @default(true)
+  submittedAt DateTime?         @map("submitted_at") @db.Timestamptz
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, position])
+  @@index([status, submittedAt(sort: Desc)])
+  @@map("testimonial")
+}
+
+model Highlight {
+  id            Int      @id @default(autoincrement())
+  position      Int
+  icon          String   @db.VarChar(100)
+  title         String   @db.VarChar(200)
+  titleEs       String?  @map("title_es") @db.VarChar(200)
+  description   String
+  descriptionEs String?  @map("description_es")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([position])
+  @@map("highlight")
+}
+
+model SocialLink {
+  id        Int      @id @default(autoincrement())
+  position  Int
+  icon      String   @db.VarChar(100)
+  href      String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([position])
+  @@map("social_link")
+}
+
+model Technology {
+  id        Int      @id @default(autoincrement())
+  position  Int
+  name      String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([position])
+  @@map("technology")
+}
+
+model ContactInfo {
+  id        Int      @id @default(autoincrement())
+  position  Int
+  icon      String   @db.VarChar(100)
+  label     String   @db.VarChar(100)
+  labelEs   String?  @map("label_es") @db.VarChar(100)
+  value     String   @db.VarChar(200)
+  href      String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([position])
+  @@map("contact_info")
+}
+
+// Origins allowed by CORS, read on every request; the owner manages them with
+// SQL and can switch one off with `enabled = false`.
+model CorsOrigin {
+  id        Int      @id @default(autoincrement())
+  origin    String   @unique @db.VarChar(200)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("cors_origin")
+}
