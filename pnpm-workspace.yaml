@@ -23,3 +23,6 @@ overrides:
   # @nestjs/cli 12.0.x (dev only) pins minimatch 10.2.6 (GHSA-g3hv-75wg-m249, fixed in 11.0.1);
   # the update is pending in nestjs/nest-cli#3663.
   '@nestjs/cli>minimatch': 11.0.3
+  # @prisma/config 7.10.x (dev only, through the prisma CLI) pins effect 3.20.0 (GHSA-7589-6fvf-x4pw,
+  # fixed in 3.22.1).
+  '@prisma/config>effect': 3.22.5
