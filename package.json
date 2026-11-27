@@ -1,6 +1,6 @@
 {
   "name": "portfolio-api",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Backend API for marco.figueroa-sanchez.com",
   "author": "Marco Antonio Figueroa Sanchez <marco@figueroa-sanchez.com>",
   "private": true,
